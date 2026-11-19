@@ -1,0 +1,6 @@
+{
+  "name": "雲端天后宮",
+  "description": "3D 線上宮廟參拜與祈福遊戲：自由捏臉換裝化身Q版信眾，領取供品與清香，按照11步傳統參拜流程誠心參拜媽祖、月老、武財神、虎爺、關聖帝君與玄天上帝，體驗擲筊、求籤、求紅線、求發財金與點光明燈。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

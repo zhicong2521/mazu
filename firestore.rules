@@ -1,0 +1,250 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ==================== Global Security Primitives ====================
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidRoomId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 32 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidAvatarMap(av) {
+      return av is map
+        && av.keys().hasAll([
+          'name', 'skinColor', 'eyeStyle', 'eyebrowStyle', 'mouthStyle',
+          'blushColor', 'hairStyle', 'hairColor', 'outfitStyle', 'headwear', 'glasses'
+        ])
+        && av.keys().hasOnly([
+          'name', 'skinColor', 'eyeStyle', 'eyebrowStyle', 'mouthStyle',
+          'blushColor', 'hairStyle', 'hairColor', 'outfitStyle', 'headwear', 'glasses'
+        ])
+        && av.name is string && av.name.size() >= 1 && av.name.size() <= 14
+        && av.skinColor is string && av.skinColor.size() >= 1 && av.skinColor.size() <= 20
+        && av.eyeStyle is string && av.eyeStyle.size() >= 1 && av.eyeStyle.size() <= 16
+        && av.eyebrowStyle is string && av.eyebrowStyle.size() >= 1 && av.eyebrowStyle.size() <= 16
+        && av.mouthStyle is string && av.mouthStyle.size() >= 1 && av.mouthStyle.size() <= 16
+        && av.blushColor is string && av.blushColor.size() >= 1 && av.blushColor.size() <= 20
+        && av.hairStyle is string && av.hairStyle.size() >= 1 && av.hairStyle.size() <= 16
+        && av.hairColor is string && av.hairColor.size() >= 1 && av.hairColor.size() <= 20
+        && av.outfitStyle is string && av.outfitStyle.size() >= 1 && av.outfitStyle.size() <= 24
+        && av.headwear is string && av.headwear.size() >= 1 && av.headwear.size() <= 24
+        && av.glasses is string && av.glasses.size() >= 1 && av.glasses.size() <= 16;
+    }
+
+    function isValidRoom(data, roomId) {
+      return data.keys().hasAll([
+          'roomId', 'createdBy', 'isPublic', 'bellSeq', 'lastBellBy', 'lastBellByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'roomId', 'createdBy', 'isPublic', 'bellSeq', 'lastBellBy', 'lastBellByUid', 'createdAt', 'updatedAt'
+        ])
+        && isValidRoomId(data.roomId) && data.roomId == roomId
+        && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
+        && data.isPublic is bool && data.isPublic == true
+        && data.bellSeq is int && data.bellSeq >= 0 && data.bellSeq <= 1000000
+        && data.lastBellBy is string && data.lastBellBy.size() <= 24
+        && data.lastBellByUid is string && data.lastBellByUid.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlayer(data, roomId) {
+      return data.keys().hasAll([
+          'uid', 'roomId', 'x', 'z', 'yaw', 'emote', 'holdingIncense', 'avatar', 'isActive', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'roomId', 'x', 'z', 'yaw', 'emote', 'holdingIncense', 'avatar', 'isActive', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128
+        && isValidRoomId(data.roomId) && data.roomId == roomId
+        && data.x is number && data.x >= -12.5 && data.x <= 12.5
+        && data.z is number && data.z >= -12.5 && data.z <= 16.5
+        && data.yaw is number && data.yaw >= -10.0 && data.yaw <= 10.0
+        && data.emote is string && data.emote.size() >= 1 && data.emote.size() <= 16
+        && data.emote in ['idle', 'bow', 'kneel', 'jump', 'wave', 'meditate']
+        && data.holdingIncense is bool
+        && isValidAvatarMap(data.avatar)
+        && data.isActive is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMessage(data, roomId, messageId) {
+      return data.keys().hasAll([
+          'id', 'roomId', 'senderUid', 'senderName', 'text', 'isSystem', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'roomId', 'senderUid', 'senderName', 'text', 'isSystem', 'createdAt'
+        ])
+        && isValidId(data.id) && data.id == messageId && data.id.size() <= 64
+        && isValidRoomId(data.roomId) && data.roomId == roomId
+        && data.senderUid is string && data.senderUid == request.auth.uid && data.senderUid.size() <= 128
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 24
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 120
+        && data.isSystem is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidLantern(data, roomId, lanternId) {
+      return data.keys().hasAll([
+          'id', 'roomId', 'ownerUid', 'ownerName', 'type', 'wish', 'slotIndex', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'roomId', 'ownerUid', 'ownerName', 'type', 'wish', 'slotIndex', 'createdAt'
+        ])
+        && isValidId(data.id) && data.id == lanternId && data.id.size() <= 64
+        && isValidRoomId(data.roomId) && data.roomId == roomId
+        && data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128
+        && data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 24
+        && data.type is string && data.type.size() >= 1 && data.type.size() <= 16
+        && data.type in ['平安燈', '姻緣燈', '財神燈', '文昌燈']
+        && data.wish is string && data.wish.size() >= 1 && data.wish.size() <= 120
+        && data.slotIndex is int && data.slotIndex >= 0 && data.slotIndex <= 29
+        && data.createdAt is timestamp;
+    }
+
+    // ==================== Collection Rules ====================
+
+    match /rooms/{roomId} {
+      allow get: if isVerifiedUser() && isValidRoomId(roomId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidRoomId(roomId)
+        && isValidRoom(incoming(), roomId)
+        && incoming().createdBy == request.auth.uid
+        && incoming().bellSeq == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidRoomId(roomId)
+        && isValidRoom(incoming(), roomId)
+        && incoming().roomId == existing().roomId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Ring shared Peace Bell
+          incoming().diff(existing()).affectedKeys().hasOnly(['bellSeq', 'lastBellBy', 'lastBellByUid', 'updatedAt'])
+          && incoming().lastBellByUid == request.auth.uid
+          && incoming().bellSeq == existing().bellSeq + 1
+        );
+
+      allow delete: if false;
+
+      // Real-time 3D player presence subcollection
+      match /players/{playerId} {
+        allow get: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(playerId)
+          && existing().roomId == roomId;
+
+        allow list: if isVerifiedUser()
+          && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(playerId)
+          && playerId == request.auth.uid
+          && isValidPlayer(incoming(), roomId)
+          && incoming().isActive == true
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/rooms/$(roomId));
+
+        allow update: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(playerId)
+          && playerId == request.auth.uid
+          && isValidPlayer(incoming(), roomId)
+          && incoming().uid == existing().uid
+          && incoming().roomId == existing().roomId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && (
+            // Action: Move / Emote / Incense / Heartbeat
+            incoming().diff(existing()).affectedKeys().hasOnly(['x', 'z', 'yaw', 'emote', 'holdingIncense', 'isActive', 'updatedAt'])
+            // Action: Avatar customization update
+            || incoming().diff(existing()).affectedKeys().hasOnly(['avatar', 'updatedAt'])
+            // Action: Full re-join sync
+            || incoming().diff(existing()).affectedKeys().hasOnly(['x', 'z', 'yaw', 'emote', 'holdingIncense', 'avatar', 'isActive', 'updatedAt'])
+          );
+
+        allow delete: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(playerId)
+          && playerId == request.auth.uid;
+      }
+
+      // Real-time live chat & ritual announcements subcollection
+      match /messages/{messageId} {
+        allow get: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(messageId)
+          && existing().roomId == roomId;
+
+        allow list: if isVerifiedUser()
+          && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(messageId)
+          && isValidMessage(incoming(), roomId, messageId)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/rooms/$(roomId));
+
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      // Shared persistent 3D blessing lanterns subcollection
+      match /lanterns/{lanternId} {
+        allow get: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(lanternId)
+          && existing().roomId == roomId;
+
+        allow list: if isVerifiedUser()
+          && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidRoomId(roomId)
+          && isValidId(lanternId)
+          && isValidLantern(incoming(), roomId, lanternId)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/rooms/$(roomId));
+
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
+  }
+}

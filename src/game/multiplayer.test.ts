@@ -4,11 +4,16 @@ import { DEFAULT_AVATAR } from './data';
 import {
   appendUniqueChatMessage,
   appendUniqueLantern,
+  clampYawForRules,
+  isPresenceFresh,
   normalizeRoomId,
   removeRemotePlayer,
   sanitizeAvatarConfig,
   sanitizeChatText,
+  sanitizeFirestoreId,
   sanitizeRemoteTransform,
+  sortByCreatedAtAsc,
+  sortByCreatedAtDesc,
   updateRemotePlayer,
   upsertRemotePlayer,
   type RemotePlayerState,
@@ -95,4 +100,38 @@ test('sanitizeAvatarConfig protects against malformed payloads', () => {
   const safe = sanitizeAvatarConfig({ name: '   ', skinColor: '#fce3cf' });
   assert.equal(safe.name, DEFAULT_AVATAR.name);
   assert.equal(safe.skinColor, '#fce3cf');
+});
+
+test('Firestore sanitization helpers keep IDs, yaw, presence freshness, and sorting compliant with rules', () => {
+  assert.equal(sanitizeFirestoreId('msg-123!@#$_ok'), 'msg-123_ok');
+  assert.ok(/^[a-zA-Z0-9_-]+$/.test(sanitizeFirestoreId('!!!', 'msg')));
+  assert.ok(sanitizeFirestoreId('a'.repeat(120)).length <= 64);
+
+  const wrappedBig = clampYawForRules(99.5);
+  assert.ok(wrappedBig >= -Math.PI - 0.01 && wrappedBig <= Math.PI + 0.01);
+  assert.ok(Math.abs(clampYawForRules(-50.2)) <= 10);
+
+  const now = 1_000_000;
+  assert.equal(isPresenceFresh(true, null, now), true);
+  assert.equal(isPresenceFresh(true, now - 30_000, now, 60_000), true);
+  assert.equal(isPresenceFresh(true, now - 90_000, now, 60_000), false);
+  assert.equal(isPresenceFresh(false, now - 5_000, now, 60_000), false);
+
+  const asc = sortByCreatedAtAsc([
+    { id: 'b', createdAtMs: 200 },
+    { id: 'a', createdAtMs: 100 },
+  ]);
+  assert.deepEqual(
+    asc.map((i) => i.id),
+    ['a', 'b'],
+  );
+
+  const desc = sortByCreatedAtDesc([
+    { id: 'a', createdAtMs: 100 },
+    { id: 'b', createdAtMs: 200 },
+  ]);
+  assert.deepEqual(
+    desc.map((i) => i.id),
+    ['b', 'a'],
+  );
 });

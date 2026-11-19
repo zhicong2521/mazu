@@ -1,6 +1,6 @@
-import { DEFAULT_AVATAR, WORLD_BOUNDS } from './data';
-import { clampPlayerPosition } from './rules';
-import type { AvatarConfig, ChatMessage, EmoteType, LitLantern } from './types';
+import { DEFAULT_AVATAR, WORLD_BOUNDS } from './data.ts';
+import { clampPlayerPosition } from './rules.ts';
+import type { AvatarConfig, ChatMessage, EmoteType, LitLantern } from './types.ts';
 
 export interface RemotePlayerState {
   id: string;
@@ -265,3 +265,53 @@ export function appendUniqueLantern(
   const next = [incoming, ...list];
   return next.length > maxLanterns ? next.slice(0, maxLanterns) : next;
 }
+
+/**
+ * Sanitizes a Firestore document ID so it matches ^[a-zA-Z0-9_-]+$ and <= 64 chars.
+ */
+export function sanitizeFirestoreId(raw: string, fallbackPrefix = 'item'): string {
+  const cleaned = raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  if (cleaned.length > 0) return cleaned;
+  return `${fallbackPrefix}-${Date.now()}`;
+}
+
+/**
+ * Wraps yaw angle into [-PI, PI] so it always satisfies Firestore rule bounds [-10, 10].
+ */
+export function clampYawForRules(yaw: number): number {
+  if (!Number.isFinite(yaw)) return Math.PI;
+  let wrapped = ((yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  if (!Number.isFinite(wrapped)) wrapped = Math.PI;
+  return Math.round(wrapped * 100) / 100;
+}
+
+/**
+ * Determines whether a Firestore remote player presence record is currently active and fresh.
+ * When `updatedAtMs` is null (local pending serverTimestamp latency compensation), an active
+ * record is treated as fresh.
+ */
+export function isPresenceFresh(
+  isActive: boolean,
+  updatedAtMs: number | null,
+  nowMs: number,
+  maxAgeMs = 60_000,
+): boolean {
+  if (!isActive) return false;
+  if (updatedAtMs === null) return true;
+  return nowMs - updatedAtMs <= maxAgeMs;
+}
+
+/**
+ * Deterministically sorts timestamped records ascending (oldest first) for chat history.
+ */
+export function sortByCreatedAtAsc<T extends { createdAtMs: number; id: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.createdAtMs - b.createdAtMs || a.id.localeCompare(b.id));
+}
+
+/**
+ * Deterministically sorts timestamped records descending (newest first) for lantern wall.
+ */
+export function sortByCreatedAtDesc<T extends { createdAtMs: number; id: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => b.createdAtMs - a.createdAtMs || b.id.localeCompare(a.id));
+}
+

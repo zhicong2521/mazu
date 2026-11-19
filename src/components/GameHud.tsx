@@ -35,6 +35,7 @@ interface GameHudProps {
   toastMessage: string | null;
   roomId: string;
   onlineCount: number;
+  isCloudMode: boolean;
   remotePlayers: RemotePlayerState[];
   onNavigateZone: (zoneId: ZoneId) => void;
   onOneClickStep: () => void;
@@ -81,6 +82,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   toastMessage,
   roomId,
   onlineCount,
+  isCloudMode,
   remotePlayers,
   onNavigateZone,
   onOneClickStep,
@@ -284,11 +286,19 @@ export const GameHud: React.FC<GameHudProps> = ({
               className="flex items-center justify-between gap-3 text-[11px] text-[#a7f3d0] hover:text-white pt-1 border-t border-[#e8bd68]/20 cursor-pointer"
             >
               <span className="flex items-center gap-1.5 font-semibold tabular-nums whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-[#4ade80]" />
-                同殿在線 {onlineCount} 人
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isCloudMode ? 'bg-[#4ade80]' : 'bg-[#fbbf24]'
+                  }`}
+                />
+                {isCloudMode ? `雲端同殿 ${onlineCount} 人` : `在線 ${onlineCount} 人`}
               </span>
-              <span className="text-[#f3d188] underline underline-offset-2 truncate max-w-[96px]">
-                {roomId === 'main' ? '揪友同拜' : `房:${roomId}`}
+              <span className="text-[#f3d188] underline underline-offset-2 truncate max-w-[106px]">
+                {!isCloudMode
+                  ? '登入跨裝置'
+                  : roomId === 'main'
+                    ? '揪友同拜'
+                    : `房:${roomId}`}
               </span>
             </button>
           </div>

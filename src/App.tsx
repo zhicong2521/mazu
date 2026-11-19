@@ -26,6 +26,12 @@ import {
   upsertRemotePlayer,
   type RemotePlayerState,
 } from './game/multiplayer';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { auth, signInWithGoogle, signOutUser } from './firebase';
+import {
+  FirestoreMultiplayerClient,
+  type MultiplayerTransport,
+} from './game/firestoreMultiplayer';
 import {
   TempleMultiplayerClient,
   type ConnectionStatus,
@@ -116,10 +122,16 @@ export default function App() {
   const [serviceFeedback, setServiceFeedback] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
 
-  // Real-time online multiplayer state
+  // Real-time online multiplayer & Firebase Auth state
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string>(getInitialRoomId);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [remotePlayers, setRemotePlayers] = useState<RemotePlayerState[]>([]);
+
+  const isCloudMode = Boolean(authUser && authUser.emailVerified);
 
   const [hudSnapshot, setHudSnapshot] = useState<SceneHudSnapshot>({
     playerX: PLAYER_SPAWN.x,
@@ -131,13 +143,19 @@ export default function App() {
 
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<TempleSceneController | null>(null);
-  const mpClientRef = useRef<TempleMultiplayerClient | null>(null);
+  const mpClientRef = useRef<MultiplayerTransport | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
   const selfIdRef = useRef<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const autoActionOnArriveRef = useRef<boolean>(false);
 
-  // Refs for latest callbacks inside WebGL scene
+  // Refs for latest callbacks inside WebGL scene & transport switches
+  const avatarRef = useRef(avatar);
+  avatarRef.current = avatar;
+  const roomIdRef = useRef(roomId);
+  roomIdRef.current = roomId;
+  const hudSnapshotRef = useRef(hudSnapshot);
+  hudSnapshotRef.current = hudSnapshot;
   const progressRef = useRef(progress);
   progressRef.current = progress;
   const phaseRef = useRef(phase);
@@ -330,103 +348,179 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Connect real-time multiplayer WebSocket client once & handle room sync
+  // Listen for Firebase Google Auth state (gates Firestore cloud sync safely)
   useEffect(() => {
-    const client = new TempleMultiplayerClient(
-      roomId,
-      {
-        avatar,
-        x: PLAYER_SPAWN.x,
-        z: PLAYER_SPAWN.z,
-        yaw: PLAYER_SPAWN.yaw,
-        holdingIncense: false,
-      },
-      {
-        onStatusChange: (status) => setConnectionStatus(status),
-        onMessage: (msg) => {
-          if (msg.type === 'room:init') {
-            selfIdRef.current = msg.selfId;
-            setRoomId(msg.roomId);
-            setRemotePlayers(msg.players);
-            sceneRef.current?.syncRemotePlayers(msg.players);
-            if (msg.messages.length > 0) {
-              setMessages(msg.messages);
-            }
-            if (msg.lanterns.length > 0) {
-              setProgress((prev) => {
-                let merged = prev.litLanterns;
-                for (const l of msg.lanterns) {
-                  merged = appendUniqueLantern(merged, l);
-                }
-                sceneRef.current?.updateLanternWall(merged.map((l) => l.slotIndex));
-                return { ...prev, litLanterns: merged };
-              });
-            }
-            return;
-          }
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setAuthUser(user);
+      setAuthReady(true);
+      if (user && user.displayName && avatarRef.current.name === DEFAULT_AVATAR.name) {
+        const cleanName = user.displayName.trim().slice(0, 14);
+        if (cleanName) {
+          setAvatar((prev) => {
+            if (prev.name !== DEFAULT_AVATAR.name) return prev;
+            const updated = { ...prev, name: cleanName };
+            sceneRef.current?.updatePlayerAvatar(updated);
+            return updated;
+          });
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
 
-          if (msg.type === 'player:joined') {
-            if (msg.player.id === selfIdRef.current) return;
-            setRemotePlayers((prev) => upsertRemotePlayer(prev, msg.player, selfIdRef.current));
-            sceneRef.current?.upsertRemotePlayer(msg.player);
-            return;
-          }
+  // Connect real-time multiplayer transport:
+  // - Verified Google user -> Global Firebase Firestore sync (works across devices & URLs)
+  // - Guest -> Same-host WebSocket fallback
+  const cloudUid = authUser && authUser.emailVerified ? authUser.uid : null;
+  useEffect(() => {
+    if (!authReady) return;
 
-          if (msg.type === 'player:updated') {
-            if (msg.id === selfIdRef.current) return;
-            setRemotePlayers((prev) => updateRemotePlayer(prev, msg));
-            sceneRef.current?.updateRemotePlayerTransform(msg);
-            return;
-          }
+    setRemotePlayers([]);
+    sceneRef.current?.syncRemotePlayers([]);
 
-          if (msg.type === 'player:left') {
-            setRemotePlayers((prev) => removeRemotePlayer(prev, msg.id));
-            sceneRef.current?.removeRemotePlayer(msg.id);
-            return;
-          }
+    const initialJoin = {
+      avatar: avatarRef.current,
+      x: hudSnapshotRef.current.playerX,
+      z: hudSnapshotRef.current.playerZ,
+      yaw: hudSnapshotRef.current.playerYaw,
+      holdingIncense: progressRef.current.holdingIncense,
+    };
 
-          if (msg.type === 'chat:message') {
-            const isSelf = Boolean(msg.playerId && msg.playerId === selfIdRef.current);
-            setMessages((prev) =>
-              appendUniqueChatMessage(prev, {
-                ...msg.message,
-                isPlayer: isSelf || msg.message.isPlayer,
-              }),
-            );
-            if (msg.playerId && !isSelf) {
-              sceneRef.current?.showRemotePlayerSpeechBubble(msg.playerId, msg.message.text);
-            }
-            return;
+    const callbacks = {
+      onStatusChange: (status: ConnectionStatus) => setConnectionStatus(status),
+      onMessage: (msg: Parameters<ConstructorParameters<typeof TempleMultiplayerClient>[2]['onMessage']>[0]) => {
+        if (msg.type === 'room:init') {
+          selfIdRef.current = msg.selfId;
+          setRoomId(msg.roomId);
+          setRemotePlayers(msg.players);
+          sceneRef.current?.syncRemotePlayers(msg.players);
+          if (msg.messages.length > 0) {
+            setMessages(msg.messages);
           }
-
-          if (msg.type === 'lantern:lit') {
+          if (msg.lanterns.length > 0) {
             setProgress((prev) => {
-              const nextLanterns = appendUniqueLantern(prev.litLanterns, msg.lantern);
-              sceneRef.current?.updateLanternWall(nextLanterns.map((l) => l.slotIndex));
-              return { ...prev, litLanterns: nextLanterns };
+              let merged = prev.litLanterns;
+              for (const l of msg.lanterns) {
+                merged = appendUniqueLantern(merged, l);
+              }
+              sceneRef.current?.updateLanternWall(merged.map((l) => l.slotIndex));
+              return { ...prev, litLanterns: merged };
             });
-            return;
           }
+          return;
+        }
 
-          if (msg.type === 'bell:rung') {
-            if (msg.playerId !== selfIdRef.current) {
-              templeAudio.playTempleBell();
-              sceneRef.current?.ringBell();
-              showToast(`香客「${msg.byName}」敲響了平安古鐘，鐘聲迴盪整座殿宇！`);
-            }
+        if (msg.type === 'player:joined') {
+          if (msg.player.id === selfIdRef.current) return;
+          setRemotePlayers((prev) => upsertRemotePlayer(prev, msg.player, selfIdRef.current));
+          sceneRef.current?.upsertRemotePlayer(msg.player);
+          return;
+        }
+
+        if (msg.type === 'player:updated') {
+          if (msg.id === selfIdRef.current) return;
+          setRemotePlayers((prev) => updateRemotePlayer(prev, msg));
+          sceneRef.current?.updateRemotePlayerTransform(msg);
+          return;
+        }
+
+        if (msg.type === 'player:left') {
+          setRemotePlayers((prev) => removeRemotePlayer(prev, msg.id));
+          sceneRef.current?.removeRemotePlayer(msg.id);
+          return;
+        }
+
+        if (msg.type === 'chat:message') {
+          const isSelf = Boolean(msg.playerId && msg.playerId === selfIdRef.current);
+          setMessages((prev) =>
+            appendUniqueChatMessage(prev, {
+              ...msg.message,
+              isPlayer: isSelf || msg.message.isPlayer,
+            }),
+          );
+          if (msg.playerId && !isSelf) {
+            sceneRef.current?.showRemotePlayerSpeechBubble(msg.playerId, msg.message.text);
           }
-        },
+          return;
+        }
+
+        if (msg.type === 'lantern:lit') {
+          setProgress((prev) => {
+            const nextLanterns = appendUniqueLantern(prev.litLanterns, msg.lantern);
+            sceneRef.current?.updateLanternWall(nextLanterns.map((l) => l.slotIndex));
+            return { ...prev, litLanterns: nextLanterns };
+          });
+          return;
+        }
+
+        if (msg.type === 'bell:rung') {
+          if (msg.playerId !== selfIdRef.current) {
+            templeAudio.playTempleBell();
+            sceneRef.current?.ringBell();
+            showToast(`香客「${msg.byName}」敲響了平安古鐘，鐘聲迴盪整座殿宇！`);
+          }
+        }
       },
-    );
+    };
+
+    const client: MultiplayerTransport = cloudUid
+      ? new FirestoreMultiplayerClient(cloudUid, roomIdRef.current, initialJoin, callbacks)
+      : new TempleMultiplayerClient(roomIdRef.current, initialJoin, callbacks);
+
     mpClientRef.current = client;
 
     return () => {
       client.dispose();
-      mpClientRef.current = null;
+      if (mpClientRef.current === client) {
+        mpClientRef.current = null;
+      }
     };
-    // Mounted once; room switching is handled via client.switchRoom()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authReady, cloudUid, showToast]);
+
+  const handleSignInGoogle = useCallback(async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const user = await signInWithGoogle();
+      templeAudio.playBlessingFanfare();
+      showToast(
+        `已登入「${user.displayName || user.email || '香客'}」，雲端跨裝置多人同步已開啟！`,
+      );
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('popup-closed-by-user') || msg.includes('cancelled-popup-request')) {
+        setAuthError('您已取消登入視窗，可隨時重新點擊登入。');
+      } else if (msg.includes('popup-blocked')) {
+        setAuthError('瀏覽器封鎖了彈出視窗，請允許彈出視窗後再點一次登入。');
+      } else {
+        setAuthError('Google 登入暫時失敗，請稍後再試或檢查網路連線。');
+      }
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [showToast]);
+
+  const handleSignOut = useCallback(async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await signOutUser();
+      showToast('已登出雲端帳號，切換回本機訪客模式。');
+    } catch {
+      setAuthError('登出時發生異常，請重試。');
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [showToast]);
+
+  const handleWalkToPlayer = useCallback(
+    (player: RemotePlayerState) => {
+      autoActionOnArriveRef.current = false;
+      sceneRef.current?.navigateToPosition(player.x, player.z);
+      showToast(`正在前往香客「${player.avatar.name}」身邊…`);
+    },
+    [showToast],
+  );
 
   const handleSwitchRoom = useCallback(
     (nextRoomRaw: string) => {
@@ -754,8 +848,12 @@ export default function App() {
       {phase === 'title' && activeModal !== 'customize' && (
         <TitleOverlay
           avatar={avatar}
+          isCloudMode={isCloudMode}
+          authName={authUser?.displayName || authUser?.email}
+          authBusy={authBusy}
           onStart={handleStart}
           onOpenCustomize={() => setActiveModal('customize')}
+          onSignInGoogle={handleSignInGoogle}
         />
       )}
 
@@ -773,6 +871,7 @@ export default function App() {
           toastMessage={toast}
           roomId={roomId}
           onlineCount={remotePlayers.length + 1}
+          isCloudMode={isCloudMode}
           remotePlayers={remotePlayers}
           onNavigateZone={(zid) => {
             autoActionOnArriveRef.current = false;
@@ -883,9 +982,20 @@ export default function App() {
         <MultiplayerModal
           roomId={roomId}
           connectionStatus={connectionStatus}
+          isCloudMode={isCloudMode}
+          authUser={
+            authUser
+              ? { displayName: authUser.displayName, email: authUser.email }
+              : null
+          }
+          authBusy={authBusy}
+          authError={authError}
           selfName={avatar.name}
           remotePlayers={remotePlayers}
+          onSignInGoogle={handleSignInGoogle}
+          onSignOut={handleSignOut}
           onSwitchRoom={handleSwitchRoom}
+          onWalkToPlayer={handleWalkToPlayer}
           onClose={() => setActiveModal(null)}
         />
       )}

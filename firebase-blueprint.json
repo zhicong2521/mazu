@@ -1,0 +1,274 @@
+{
+  "entities": {
+    "TempleRoom": {
+      "title": "TempleRoom",
+      "description": "An online Cloud Tianhou Temple hall room that coordinates shared Peace Bell rings and anchors player/chat/lantern subcollections.",
+      "type": "object",
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Normalized room identifier matching the document ID."
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the user who initialized the room."
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Whether the room allows authenticated pilgrims with the room code to enter."
+        },
+        "bellSeq": {
+          "type": "integer",
+          "description": "Monotonically increasing Peace Bell ring counter."
+        },
+        "lastBellBy": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "Display nickname of the pilgrim who last rang the Peace Bell."
+        },
+        "lastBellByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID of the pilgrim who last rang the Peace Bell."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the room was initialized."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest room update."
+        }
+      },
+      "required": [
+        "roomId",
+        "createdBy",
+        "isPublic",
+        "bellSeq",
+        "lastBellBy",
+        "lastBellByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RoomPlayer": {
+      "title": "RoomPlayer",
+      "description": "Public 3D avatar presence, position, emote, and held incense state of an online pilgrim inside a temple room. Contains zero PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Owner Firebase Auth UID matching document ID."
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent room ID."
+        },
+        "x": {
+          "type": "number",
+          "description": "Clamped world X coordinate in temple hall (-12..12)."
+        },
+        "z": {
+          "type": "number",
+          "description": "Clamped world Z coordinate in temple hall (-12..16)."
+        },
+        "yaw": {
+          "type": "number",
+          "description": "Facing yaw angle in radians."
+        },
+        "emote": {
+          "type": "string",
+          "enum": ["idle", "bow", "kneel", "jump", "wave", "meditate"],
+          "maxLength": 16,
+          "description": "Current 3D character animation state."
+        },
+        "holdingIncense": {
+          "type": "boolean",
+          "description": "Whether the pilgrim is holding lit incense sticks."
+        },
+        "avatar": {
+          "type": "object",
+          "description": "Q-Chibi visual customization map (nickname and appearance tokens only)."
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Whether the pilgrim is actively present in the room."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when player joined the room."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest heartbeat or movement update."
+        }
+      },
+      "required": [
+        "uid",
+        "roomId",
+        "x",
+        "z",
+        "yaw",
+        "emote",
+        "holdingIncense",
+        "avatar",
+        "isActive",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RoomMessage": {
+      "title": "RoomMessage",
+      "description": "Immutable live chat message or public blessing announcement in a temple room.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique message ID matching the document ID."
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent room ID."
+        },
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Sender Firebase Auth UID."
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24,
+          "description": "Sender public display nickname."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Chat or blessing announcement content."
+        },
+        "isSystem": {
+          "type": "boolean",
+          "description": "Whether this message is a public blessing announcement."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when message was sent."
+        }
+      },
+      "required": [
+        "id",
+        "roomId",
+        "senderUid",
+        "senderName",
+        "text",
+        "isSystem",
+        "createdAt"
+      ]
+    },
+    "RoomLantern": {
+      "title": "RoomLantern",
+      "description": "Immutable shared blessing lantern displayed on the 3D Lantern Wall of a temple room.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique lantern ID matching the document ID."
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent room ID."
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID of pilgrim who lit the lantern."
+        },
+        "ownerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24,
+          "description": "Public nickname displayed on the lantern."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["平安燈", "姻緣燈", "財神燈", "文昌燈"],
+          "maxLength": 16,
+          "description": "Blessing lantern category."
+        },
+        "wish": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Blessing wish text."
+        },
+        "slotIndex": {
+          "type": "integer",
+          "description": "Slot index on the 30-slot 3D lantern wall (0..29)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when lantern was lit."
+        }
+      },
+      "required": [
+        "id",
+        "roomId",
+        "ownerUid",
+        "ownerName",
+        "type",
+        "wish",
+        "slotIndex",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/TempleRoom" },
+      "description": "Temple room master document coordinating bell rings and anchoring subcollections."
+    },
+    "/rooms/{roomId}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/RoomPlayer" },
+      "description": "Real-time 3D presence, coordinates, emote, and public avatar appearance for active online pilgrims."
+    },
+    "/rooms/{roomId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/RoomMessage" },
+      "description": "Real-time chat messages and public blessing announcements in a temple room."
+    },
+    "/rooms/{roomId}/lanterns/{lanternId}": {
+      "schema": { "$ref": "#/entities/RoomLantern" },
+      "description": "Shared persistent blessing lanterns illuminating the 3D Lantern Wall."
+    }
+  }
+}

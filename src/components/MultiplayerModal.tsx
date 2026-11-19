@@ -1,27 +1,52 @@
 import React, { useState } from 'react';
-import { Check, Copy, DoorOpen, Shuffle, Users, X } from 'lucide-react';
+import {
+  Check,
+  Cloud,
+  Copy,
+  DoorOpen,
+  LogIn,
+  LogOut,
+  Navigation,
+  Shuffle,
+  Users,
+  X,
+} from 'lucide-react';
 import { normalizeRoomId, type RemotePlayerState } from '../game/multiplayer';
 import type { ConnectionStatus } from '../game/multiplayerClient';
 
 interface MultiplayerModalProps {
   roomId: string;
   connectionStatus: ConnectionStatus;
+  isCloudMode: boolean;
+  authUser: { displayName: string | null; email: string | null } | null;
+  authBusy: boolean;
+  authError: string | null;
   selfName: string;
   remotePlayers: RemotePlayerState[];
+  onSignInGoogle: () => void;
+  onSignOut: () => void;
   onSwitchRoom: (nextRoomId: string) => void;
+  onWalkToPlayer: (player: RemotePlayerState) => void;
   onClose: () => void;
 }
 
 export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   roomId,
   connectionStatus,
+  isCloudMode,
+  authUser,
+  authBusy,
+  authError,
   selfName,
   remotePlayers,
+  onSignInGoogle,
+  onSignOut,
   onSwitchRoom,
+  onWalkToPlayer,
   onClose,
 }) => {
   const [roomInput, setRoomInput] = useState(roomId === 'main' ? '' : roomId);
-  const [copied, setCopied] = useState(false);
+  const [copiedType, setCopiedType] = useState<'url' | 'code' | null>(null);
 
   const totalOnline = remotePlayers.length + 1;
   const inviteUrl =
@@ -31,16 +56,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         }`
       : '';
 
-  const handleCopyInvite = async () => {
+  const copyText = async (text: string, kind: 'url' | 'code') => {
     try {
-      await navigator.clipboard.writeText(inviteUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2200);
+      await navigator.clipboard.writeText(text);
     } catch {
-      // Fallback: select text via prompt-free inline hint
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2200);
+      // Fallback: still show confirmation after select-all
     }
+    setCopiedType(kind);
+    window.setTimeout(() => setCopiedType(null), 2200);
   };
 
   const handleJoinCustom = (e: React.FormEvent) => {
@@ -62,7 +85,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
       aria-modal="true"
       aria-label="多人線上同參與揪友進香"
     >
-      <div className="temple-card w-full max-w-lg rounded-2xl overflow-hidden flex flex-col max-h-[88vh]">
+      <div className="temple-card w-full max-w-lg rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#e7be6a]/30 bg-[#32120b]">
           <div className="flex items-center gap-2.5">
@@ -70,7 +93,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             <div>
               <h2 className="text-lg font-bold text-[#fbe09c]">多人線上同參 · 揪友進香</h2>
               <p className="text-xs text-[#d6ba8b] mt-0.5">
-                即時同步 3D 分身走動、香客聊天、敲響平安鐘與光明燈牆
+                即時同步 3D 分身走動、香客打字聊天、平安鐘與光明燈牆
               </p>
             </div>
           </div>
@@ -85,7 +108,65 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         </div>
 
         <div className="p-5 flex flex-col gap-4 overflow-y-auto temple-scroll">
-          {/* Current Hall Banner + Copy Invite */}
+          {/* Cloud Sync Auth Card */}
+          {isCloudMode && authUser ? (
+            <div className="rounded-xl p-3.5 bg-[#1b2e24] border border-[#6ee7b7]/45 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Cloud className="w-5 h-5 text-[#6ee7b7] shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-[#a7f3d0]">
+                    雲端跨裝置多人同步已開啟
+                  </div>
+                  <div className="text-[11px] text-[#d1fae5]/85 truncate">
+                    已登入：{authUser.displayName || authUser.email || 'Google 香客'} · 所有裝置與分享連結皆可同殿相見
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onSignOut}
+                disabled={authBusy}
+                className="px-2.5 py-1.5 rounded-lg bg-[#122019] hover:bg-[#233d30] border border-[#6ee7b7]/35 text-[11px] text-[#d1fae5] flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                登出
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-xl p-4 bg-[#45170e] border border-[#f5cc74]/60 flex flex-col gap-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-bold text-[#ffe9a8] flex items-center gap-1.5">
+                    <Cloud className="w-4 h-4 text-[#f6cf7c]" />
+                    登入 Google 開啟「跨裝置 / 跨連結」多人連線
+                  </div>
+                  <p className="text-xs text-[#ecd6b1] mt-1 leading-relaxed">
+                    不同手機、電腦或分享連結需要透過雲端資料庫同步才能看到彼此。你與朋友都點下方登入並進入相同房號，即可立刻在 3D 殿內相見！
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="google-signin-btn"
+                  onClick={onSignInGoogle}
+                  disabled={authBusy}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#b92d22] hover:bg-[#d1362a] border border-[#f8d37c] text-sm font-bold text-[#fff7e2] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 shadow"
+                >
+                  <LogIn className="w-4 h-4" />
+                  {authBusy ? '正在開啟 Google 登入視窗…' : '使用 Google 帳號登入 · 跨裝置同參'}
+                </button>
+              </div>
+              {authError && (
+                <p className="text-xs text-[#fca5a5] bg-[#2a0c08] border border-[#f87171]/40 rounded-lg px-3 py-1.5">
+                  {authError}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Current Hall Banner + Copy Invite & Room Code */}
           <div className="rounded-xl p-4 bg-[#3d160e] border border-[#e7be6a]/35 flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -94,8 +175,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   {roomId === 'main' ? '本殿大廳（公開同參 · main）' : `私人進香房：${roomId}`}
                 </div>
               </div>
-              <span className="px-2.5 py-1 rounded-lg bg-[#24100b] border border-[#6ee7b7]/40 text-xs font-bold text-[#a7f3d0] tabular-nums">
-                {connectionStatus === 'connected' ? `在線 ${totalOnline} 人` : '連線同步中…'}
+              <span className="px-2.5 py-1 rounded-lg bg-[#24100b] border border-[#6ee7b7]/40 text-xs font-bold text-[#a7f3d0] tabular-nums shrink-0">
+                {connectionStatus === 'connected'
+                  ? `${isCloudMode ? '雲端' : '本機'}在線 ${totalOnline} 人`
+                  : '連線同步中…'}
               </span>
             </div>
 
@@ -109,11 +192,19 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               />
               <button
                 type="button"
-                onClick={handleCopyInvite}
-                className="px-3.5 py-2 rounded-lg bg-[#b42921] hover:bg-[#cc3128] text-xs font-bold text-[#fff5df] border border-[#f5cc74]/70 flex items-center gap-1.5 cursor-pointer shrink-0"
+                onClick={() => copyText(inviteUrl, 'url')}
+                className="px-3 py-2 rounded-lg bg-[#b42921] hover:bg-[#cc3128] text-xs font-bold text-[#fff5df] border border-[#f5cc74]/70 flex items-center gap-1 cursor-pointer shrink-0"
               >
-                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {copied ? '已複製連結' : '複製邀請'}
+                {copiedType === 'url' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedType === 'url' ? '已複製' : '複製連結'}
+              </button>
+              <button
+                type="button"
+                onClick={() => copyText(roomId, 'code')}
+                className="px-3 py-2 rounded-lg bg-[#4a1c12] hover:bg-[#662618] text-xs font-bold text-[#ffefc8] border border-[#e7be6a]/50 flex items-center gap-1 cursor-pointer shrink-0"
+              >
+                {copiedType === 'code' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedType === 'code' ? '已複製' : '複製房號'}
               </button>
             </div>
           </div>
@@ -121,7 +212,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           {/* Room Switcher */}
           <form onSubmit={handleJoinCustom} className="flex flex-col gap-2">
             <label htmlFor="room-code-input" className="text-xs font-semibold text-[#f3d188]">
-              切換或建立親友專屬進香房（英數字房號）
+              切換或建立親友專屬進香房（雙方輸入相同英數字房號即可相見）
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -168,7 +259,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           {/* Active Online Pilgrims List */}
           <div>
             <div className="text-xs font-semibold text-[#f3d188] mb-2">
-              同殿即時香客名單（{totalOnline} 人）
+              同殿即時真人香客（{totalOnline} 人）
             </div>
             <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto temple-scroll pr-1">
               <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#471b11] border border-[#f5cc74]/45">
@@ -176,28 +267,43 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   <span className="w-2 h-2 rounded-full bg-[#4ade80] shrink-0" />
                   <span className="text-sm font-bold text-[#ffefc8] truncate">{selfName}（你）</span>
                 </div>
-                <span className="text-[11px] text-[#f3d188]">本機連線中</span>
+                <span className="text-[11px] text-[#f3d188]">
+                  {isCloudMode ? '雲端同步中' : '本機模式'}
+                </span>
               </div>
 
               {remotePlayers.length === 0 ? (
-                <div className="px-3 py-3 rounded-lg bg-[#240d08] border border-[#e7be6a]/20 text-xs text-[#cfa979] text-center">
-                  目前此殿宇僅有你一位真人香客，點上方「複製邀請」或另開分頁即可體驗多人即時同殿參拜！
+                <div className="px-3 py-3 rounded-lg bg-[#240d08] border border-[#e7be6a]/20 text-xs text-[#cfa979] text-center leading-relaxed">
+                  {isCloudMode
+                    ? `目前房號「${roomId}」只有你一位香客。請把房號「${roomId}」告訴朋友，對方登入 Google 並輸入同一房號即可同殿參拜！`
+                    : '目前為本機訪客模式（僅同步同一網址分頁）。點擊上方「Google 登入」即可跨裝置與朋友相見！'}
                 </div>
               ) : (
                 remotePlayers.map((p) => (
                   <div
                     key={p.id}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#2d100a] border border-[#e7be6a]/25"
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#2d100a] border border-[#e7be6a]/25"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full bg-[#38bdf8] shrink-0" />
                       <span className="text-sm font-medium text-[#f8e6c6] truncate">
                         {p.avatar.name}
                       </span>
+                      <span className="text-[11px] text-[#cfa979] shrink-0">
+                        {p.holdingIncense ? '持香中' : '漫步中'}
+                      </span>
                     </div>
-                    <span className="text-[11px] text-[#d9ba8c]">
-                      {p.holdingIncense ? '持香參拜中' : '殿內漫步中'}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onWalkToPlayer(p);
+                        onClose();
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-[#4d1e14] hover:bg-[#6d2b1d] border border-[#f0c56b]/45 text-[11px] font-semibold text-[#ffe8ad] flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <Navigation className="w-3 h-3" />
+                      前往身邊
+                    </button>
                   </div>
                 ))
               )}

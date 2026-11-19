@@ -5,7 +5,7 @@ import {
   TEMPLE_ZONES,
   WORLD_BOUNDS,
   WORSHIP_STEPS,
-} from './data';
+} from './data.ts';
 import type {
   BweiResult,
   FortuneSlip,
@@ -15,7 +15,7 @@ import type {
   TempleZone,
   WorshipActionType,
   ZoneId,
-} from './types';
+} from './types.ts';
 
 /**
  * Resolves a traditional Taiwanese Moon Block (擲筊) throw from two [0, 1) random values.

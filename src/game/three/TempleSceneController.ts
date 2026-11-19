@@ -142,7 +142,7 @@ export class TempleSceneController {
   private isDraggingCamera = false;
   private lastPointerX = 0;
   private lastPointerY = 0;
-  private autoWalkTarget: { x: number; z: number; zoneId: ZoneId } | null = null;
+  private autoWalkTarget: { x: number; z: number; zoneId?: ZoneId } | null = null;
   private playerBubbleTimer = 0;
 
   // Timing & lifecycle
@@ -507,6 +507,14 @@ export class TempleSceneController {
     };
   }
 
+  public navigateToPosition(x: number, z: number): void {
+    const clamped = clampPlayerPosition(x, z);
+    this.autoWalkTarget = {
+      x: clamped.x,
+      z: clamped.z,
+    };
+  }
+
   public faceZone(zoneId: ZoneId): void {
     const zone = TEMPLE_ZONES[zoneId];
     if (!zone) return;
@@ -739,11 +747,13 @@ export class TempleSceneController {
           this.autoWalkTarget.x - this.playerX,
           this.autoWalkTarget.z - this.playerZ,
         );
-        if (finalDist < 0.42) {
+        if (finalDist < (this.autoWalkTarget.zoneId ? 0.42 : 0.95)) {
           const arrivedZone = this.autoWalkTarget.zoneId;
           this.autoWalkTarget = null;
-          this.faceZone(arrivedZone);
-          this.callbacks.onAutoWalkArrive(arrivedZone);
+          if (arrivedZone) {
+            this.faceZone(arrivedZone);
+            this.callbacks.onAutoWalkArrive(arrivedZone);
+          }
         } else if (dist > 0.05) {
           moveX = dx / dist;
           moveZ = dz / dist;

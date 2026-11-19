@@ -3,14 +3,22 @@ import type { AvatarConfig } from '../game/types';
 
 interface TitleOverlayProps {
   avatar: AvatarConfig;
+  isCloudMode: boolean;
+  authName?: string | null;
+  authBusy: boolean;
   onStart: () => void;
   onOpenCustomize: () => void;
+  onSignInGoogle: () => void;
 }
 
 export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   avatar,
+  isCloudMode,
+  authName,
+  authBusy,
   onStart,
   onOpenCustomize,
+  onSignInGoogle,
 }) => {
   return (
     <div
@@ -97,9 +105,9 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
       {/* Central viewport stays wide open so the glowing 3D Mazu Main Altar & Lanterns shine */}
       <div className="flex-1" />
 
-      {/* Bottom Safe Region: Primary Start CTA + Avatar Customizer + Single-line Hint */}
-      <div className="flex flex-col items-center gap-4 mb-2 pointer-events-auto">
-        <div className="flex flex-wrap items-center justify-center gap-4">
+      {/* Bottom Safe Region: Primary Start CTA + Avatar Customizer + Cloud Sign-In */}
+      <div className="flex flex-col items-center gap-3.5 mb-2 pointer-events-auto">
+        <div className="flex flex-wrap items-center justify-center gap-3.5">
           <button
             type="button"
             data-start="true"
@@ -122,6 +130,24 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           >
             自訂分身（{avatar.name}）
           </button>
+
+          {!isCloudMode ? (
+            <button
+              type="button"
+              disabled={authBusy}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onSignInGoogle();
+              }}
+              className="px-5 py-3.5 rounded-xl text-sm font-semibold tracking-wide text-[#a7f3d0] bg-[#192c23]/95 border border-[#6ee7b7]/55 hover:border-[#a7f3d0] hover:bg-[#213b2f] transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60"
+            >
+              {authBusy ? '登入中…' : 'Google 登入 · 跨裝置多人'}
+            </button>
+          ) : (
+            <span className="px-4 py-3.5 rounded-xl text-sm font-semibold text-[#a7f3d0] bg-[#192c23]/95 border border-[#6ee7b7]/45 whitespace-nowrap">
+              已啟用雲端多人（{authName || avatar.name}）
+            </span>
+          )}
         </div>
 
         <p className="text-xs sm:text-sm text-[#e8d2b0]/85 tracking-wide text-center">

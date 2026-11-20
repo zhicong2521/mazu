@@ -4,6 +4,7 @@ import {
   Cloud,
   Copy,
   DoorOpen,
+  ExternalLink,
   LogIn,
   LogOut,
   Navigation,
@@ -11,6 +12,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import type { FormattedAuthError } from '../game/authErrors';
 import { normalizeRoomId, type RemotePlayerState } from '../game/multiplayer';
 import type { ConnectionStatus } from '../game/multiplayerClient';
 
@@ -20,10 +22,12 @@ interface MultiplayerModalProps {
   isCloudMode: boolean;
   authUser: { displayName: string | null; email: string | null } | null;
   authBusy: boolean;
-  authError: string | null;
+  authError: FormattedAuthError | null;
+  isInIframe: boolean;
   selfName: string;
   remotePlayers: RemotePlayerState[];
   onSignInGoogle: () => void;
+  onSignInRedirect: () => void;
   onSignOut: () => void;
   onSwitchRoom: (nextRoomId: string) => void;
   onWalkToPlayer: (player: RemotePlayerState) => void;
@@ -37,9 +41,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   authUser,
   authBusy,
   authError,
+  isInIframe,
   selfName,
   remotePlayers,
   onSignInGoogle,
+  onSignInRedirect,
   onSignOut,
   onSwitchRoom,
   onWalkToPlayer,
@@ -134,34 +140,71 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             </div>
           ) : (
             <div className="rounded-xl p-4 bg-[#45170e] border border-[#f5cc74]/60 flex flex-col gap-2.5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-bold text-[#ffe9a8] flex items-center gap-1.5">
-                    <Cloud className="w-4 h-4 text-[#f6cf7c]" />
-                    登入 Google 開啟「跨裝置 / 跨連結」多人連線
-                  </div>
-                  <p className="text-xs text-[#ecd6b1] mt-1 leading-relaxed">
-                    不同手機、電腦或分享連結需要透過雲端資料庫同步才能看到彼此。你與朋友都點下方登入並進入相同房號，即可立刻在 3D 殿內相見！
-                  </p>
+              <div>
+                <div className="text-sm font-bold text-[#ffe9a8] flex items-center gap-1.5">
+                  <Cloud className="w-4 h-4 text-[#f6cf7c]" />
+                  登入 Google 開啟「跨裝置 / 跨連結」多人連線
                 </div>
+                <p className="text-xs text-[#ecd6b1] mt-1 leading-relaxed">
+                  不同手機、電腦或分享連結需要透過雲端資料庫同步才能看到彼此。你與朋友都點下方登入並進入相同房號，即可立刻在 3D 殿內相見！
+                </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   data-testid="google-signin-btn"
-                  onClick={onSignInGoogle}
+                  onClick={() => onSignInGoogle()}
                   disabled={authBusy}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#b92d22] hover:bg-[#d1362a] border border-[#f8d37c] text-sm font-bold text-[#fff7e2] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 shadow"
+                  className="flex-1 min-w-[200px] px-4 py-2.5 rounded-xl bg-[#b92d22] hover:bg-[#d1362a] border border-[#f8d37c] text-sm font-bold text-[#fff7e2] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 shadow"
                 >
                   <LogIn className="w-4 h-4" />
                   {authBusy ? '正在開啟 Google 登入視窗…' : '使用 Google 帳號登入 · 跨裝置同參'}
                 </button>
+                {isInIframe && inviteUrl && (
+                  <a
+                    href={inviteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2.5 rounded-xl bg-[#2a120d] hover:bg-[#3f1a12] border border-[#f5cc74]/55 text-xs font-bold text-[#ffefc8] inline-flex items-center gap-1.5 shrink-0"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    新分頁登入
+                  </a>
+                )}
               </div>
+
               {authError && (
-                <p className="text-xs text-[#fca5a5] bg-[#2a0c08] border border-[#f87171]/40 rounded-lg px-3 py-1.5">
-                  {authError}
-                </p>
+                <div
+                  role="alert"
+                  data-testid="modal-auth-error"
+                  className="text-xs text-[#fecaca] bg-[#2a0c08] border border-[#f87171]/50 rounded-lg px-3 py-2 flex flex-col gap-2"
+                >
+                  <p className="leading-relaxed">{authError.message}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(authError.suggestNewTab || isInIframe) && inviteUrl && (
+                      <a
+                        href={inviteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded-md bg-[#b92d22] hover:bg-[#d1362a] border border-[#f8d37c] text-[11px] font-bold text-[#fff7e2] inline-flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        在新分頁開啟以完成登入
+                      </a>
+                    )}
+                    {authError.suggestRedirect && !isInIframe && (
+                      <button
+                        type="button"
+                        onClick={onSignInRedirect}
+                        className="px-3 py-1.5 rounded-md bg-[#4a1c12] hover:bg-[#662618] border border-[#f5cc74]/55 text-[11px] font-bold text-[#ffefc8] inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <LogIn className="w-3 h-3" />
+                        改用跳轉方式登入
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}

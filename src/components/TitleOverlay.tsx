@@ -1,4 +1,6 @@
 import React from 'react';
+import { ExternalLink, LogIn } from 'lucide-react';
+import type { FormattedAuthError } from '../game/authErrors';
 import type { AvatarConfig } from '../game/types';
 
 interface TitleOverlayProps {
@@ -6,9 +8,12 @@ interface TitleOverlayProps {
   isCloudMode: boolean;
   authName?: string | null;
   authBusy: boolean;
+  authError: FormattedAuthError | null;
+  isInIframe: boolean;
   onStart: () => void;
   onOpenCustomize: () => void;
   onSignInGoogle: () => void;
+  onSignInRedirect: () => void;
 }
 
 export const TitleOverlay: React.FC<TitleOverlayProps> = ({
@@ -16,10 +21,15 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   isCloudMode,
   authName,
   authBusy,
+  authError,
+  isInIframe,
   onStart,
   onOpenCustomize,
   onSignInGoogle,
+  onSignInRedirect,
 }) => {
+  const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+
   return (
     <div
       className="fixed inset-0 z-20 flex flex-col items-center justify-between px-6 py-8 pointer-events-none"
@@ -105,8 +115,41 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
       {/* Central viewport stays wide open so the glowing 3D Mazu Main Altar & Lanterns shine */}
       <div className="flex-1" />
 
-      {/* Bottom Safe Region: Primary Start CTA + Avatar Customizer + Cloud Sign-In */}
-      <div className="flex flex-col items-center gap-3.5 mb-2 pointer-events-auto">
+      {/* Bottom Safe Region: Primary Start CTA + Avatar Customizer + Cloud Sign-In + Auth Feedback */}
+      <div className="flex flex-col items-center gap-3 mb-2 pointer-events-auto max-w-2xl w-full">
+        {authError && !isCloudMode && (
+          <div
+            role="alert"
+            data-testid="title-auth-error"
+            className="w-full max-w-xl rounded-xl px-4 py-3 bg-[#2a0c08]/95 border border-[#f87171]/60 text-xs sm:text-sm text-[#fecaca] flex flex-col gap-2 shadow-lg"
+          >
+            <p className="leading-relaxed text-center">{authError.message}</p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {(authError.suggestNewTab || isInIframe) && currentUrl && (
+                <a
+                  href={currentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-1.5 rounded-lg bg-[#b92d22] hover:bg-[#d1362a] border border-[#f8d37c] text-xs font-bold text-[#fff7e2] inline-flex items-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  在新分頁開啟登入
+                </a>
+              )}
+              {authError.suggestRedirect && !isInIframe && (
+                <button
+                  type="button"
+                  onClick={onSignInRedirect}
+                  className="px-3.5 py-1.5 rounded-lg bg-[#4a1c12] hover:bg-[#662618] border border-[#f5cc74]/60 text-xs font-bold text-[#ffefc8] inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  改用跳轉方式登入
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-center gap-3.5">
           <button
             type="button"
@@ -134,14 +177,12 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           {!isCloudMode ? (
             <button
               type="button"
+              data-testid="title-google-signin-btn"
               disabled={authBusy}
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onSignInGoogle();
-              }}
+              onClick={() => onSignInGoogle()}
               className="px-5 py-3.5 rounded-xl text-sm font-semibold tracking-wide text-[#a7f3d0] bg-[#192c23]/95 border border-[#6ee7b7]/55 hover:border-[#a7f3d0] hover:bg-[#213b2f] transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60"
             >
-              {authBusy ? '登入中…' : 'Google 登入 · 跨裝置多人'}
+              {authBusy ? '正在開啟 Google 登入…' : 'Google 登入 · 跨裝置多人'}
             </button>
           ) : (
             <span className="px-4 py-3.5 rounded-xl text-sm font-semibold text-[#a7f3d0] bg-[#192c23]/95 border border-[#6ee7b7]/45 whitespace-nowrap">

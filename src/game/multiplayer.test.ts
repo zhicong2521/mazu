@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { extractAuthErrorCode, formatFirebaseAuthError } from './authErrors';
 import { DEFAULT_AVATAR } from './data';
 import {
   appendUniqueChatMessage,
@@ -134,4 +135,27 @@ test('Firestore sanitization helpers keep IDs, yaw, presence freshness, and sort
     desc.map((i) => i.id),
     ['b', 'a'],
   );
+});
+
+test('formatFirebaseAuthError identifies Firebase Auth codes and recommends new tab in iframe or redirect in top tab', () => {
+  assert.equal(extractAuthErrorCode({ code: 'auth/popup-blocked' }), 'auth/popup-blocked');
+  assert.equal(
+    extractAuthErrorCode(new Error('Firebase: Error (auth/unauthorized-domain).')),
+    'auth/unauthorized-domain',
+  );
+
+  const iframeBlocked = formatFirebaseAuthError({ code: 'auth/popup-blocked' }, true);
+  assert.equal(iframeBlocked.suggestNewTab, true);
+  assert.equal(iframeBlocked.suggestRedirect, false);
+
+  const topBlocked = formatFirebaseAuthError({ code: 'auth/popup-blocked' }, false);
+  assert.equal(topBlocked.suggestNewTab, false);
+  assert.equal(topBlocked.suggestRedirect, true);
+
+  const unauthDomain = formatFirebaseAuthError(
+    { code: 'auth/unauthorized-domain' },
+    false,
+    'example.test',
+  );
+  assert.ok(unauthDomain.message.includes('example.test'));
 });

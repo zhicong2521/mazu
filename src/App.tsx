@@ -27,7 +27,18 @@ import {
   type RemotePlayerState,
 } from './game/multiplayer';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { auth, signInWithGoogle, signOutUser } from './firebase';
+import {
+  auth,
+  consumeGoogleRedirectResult,
+  isRunningInIframe,
+  signInWithGoogle,
+  signInWithGoogleRedirect,
+  signOutUser,
+} from './firebase';
+import {
+  formatFirebaseAuthError,
+  type FormattedAuthError,
+} from './game/authErrors';
 import {
   FirestoreMultiplayerClient,
   type MultiplayerTransport,
@@ -126,7 +137,8 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<FormattedAuthError | null>(null);
+  const [isInIframe] = useState<boolean>(() => isRunningInIframe());
   const [roomId, setRoomId] = useState<string>(getInitialRoomId);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [remotePlayers, setRemotePlayers] = useState<RemotePlayerState[]>([]);
@@ -348,11 +360,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Listen for Firebase Google Auth state (gates Firestore cloud sync safely)
+  // Listen for Firebase Google Auth state & complete any redirect sign-in result
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setAuthUser(user);
       setAuthReady(true);
+      if (user) {
+        setAuthError(null);
+      }
       if (user && user.displayName && avatarRef.current.name === DEFAULT_AVATAR.name) {
         const cleanName = user.displayName.trim().slice(0, 14);
         if (cleanName) {
@@ -365,8 +380,26 @@ export default function App() {
         }
       }
     });
+
+    void consumeGoogleRedirectResult()
+      .then((redirectUser) => {
+        if (redirectUser) {
+          setAuthUser(redirectUser);
+          setAuthReady(true);
+          setAuthError(null);
+          showToast(
+            `已登入「${redirectUser.displayName || redirectUser.email || '香客'}」，雲端跨裝置多人同步已開啟！`,
+          );
+        }
+      })
+      .catch((error) => {
+        console.error('Google redirect sign-in result error:', error);
+        const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+        setAuthError(formatFirebaseAuthError(error, isInIframe, hostname));
+      });
+
     return () => unsub();
-  }, []);
+  }, [isInIframe, showToast]);
 
   // Connect real-time multiplayer transport:
   // - Verified Google user -> Global Firebase Firestore sync (works across devices & URLs)
@@ -478,27 +511,39 @@ export default function App() {
   }, [authReady, cloudUid, showToast]);
 
   const handleSignInGoogle = useCallback(async () => {
+    // Launch popup synchronously inside the click gesture before React state updates
+    const loginPromise = signInWithGoogle();
     setAuthBusy(true);
     setAuthError(null);
     try {
-      const user = await signInWithGoogle();
+      const user = await loginPromise;
+      setAuthUser(user);
+      setAuthReady(true);
       templeAudio.playBlessingFanfare();
       showToast(
         `已登入「${user.displayName || user.email || '香客'}」，雲端跨裝置多人同步已開啟！`,
       );
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes('popup-closed-by-user') || msg.includes('cancelled-popup-request')) {
-        setAuthError('您已取消登入視窗，可隨時重新點擊登入。');
-      } else if (msg.includes('popup-blocked')) {
-        setAuthError('瀏覽器封鎖了彈出視窗，請允許彈出視窗後再點一次登入。');
-      } else {
-        setAuthError('Google 登入暫時失敗，請稍後再試或檢查網路連線。');
-      }
+      console.error('Google Sign-In failed:', error);
+      const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+      setAuthError(formatFirebaseAuthError(error, isInIframe, hostname));
     } finally {
       setAuthBusy(false);
     }
-  }, [showToast]);
+  }, [isInIframe, showToast]);
+
+  const handleSignInRedirect = useCallback(async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await signInWithGoogleRedirect();
+    } catch (error) {
+      console.error('Google Redirect Sign-In failed:', error);
+      const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+      setAuthError(formatFirebaseAuthError(error, isInIframe, hostname));
+      setAuthBusy(false);
+    }
+  }, [isInIframe]);
 
   const handleSignOut = useCallback(async () => {
     setAuthBusy(true);
@@ -506,8 +551,14 @@ export default function App() {
     try {
       await signOutUser();
       showToast('已登出雲端帳號，切換回本機訪客模式。');
-    } catch {
-      setAuthError('登出時發生異常，請重試。');
+    } catch (error) {
+      console.error('Google Sign-Out failed:', error);
+      setAuthError({
+        code: 'auth/signout-failed',
+        message: '登出時發生異常，請重試。',
+        suggestNewTab: false,
+        suggestRedirect: false,
+      });
     } finally {
       setAuthBusy(false);
     }
@@ -851,9 +902,12 @@ export default function App() {
           isCloudMode={isCloudMode}
           authName={authUser?.displayName || authUser?.email}
           authBusy={authBusy}
+          authError={authError}
+          isInIframe={isInIframe}
           onStart={handleStart}
           onOpenCustomize={() => setActiveModal('customize')}
           onSignInGoogle={handleSignInGoogle}
+          onSignInRedirect={handleSignInRedirect}
         />
       )}
 
@@ -990,9 +1044,11 @@ export default function App() {
           }
           authBusy={authBusy}
           authError={authError}
+          isInIframe={isInIframe}
           selfName={avatar.name}
           remotePlayers={remotePlayers}
           onSignInGoogle={handleSignInGoogle}
+          onSignInRedirect={handleSignInRedirect}
           onSignOut={handleSignOut}
           onSwitchRoom={handleSwitchRoom}
           onWalkToPlayer={handleWalkToPlayer}
